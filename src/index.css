@@ -13,6 +13,9 @@
     --surface: 0 0% 100%;
     --shadow: 0 0% 0%;
     --radius: 1rem;
+    --glass-border-width: 1px;
+    --glass-gap: 1rem;
+    --glass-shell-radius: 2.5rem;
   }
 
   * {
@@ -80,17 +83,9 @@
     content: "";
     position: absolute;
     inset: 0;
-    padding: 1.4px;
+    padding: var(--glass-border-width);
     border-radius: inherit;
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.45) 0%,
-      rgba(255, 255, 255, 0.15) 20%,
-      transparent 40%,
-      transparent 60%,
-      rgba(255, 255, 255, 0.15) 80%,
-      rgba(255, 255, 255, 0.45) 100%
-    );
+    background: rgba(255, 255, 255, 0.24);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -112,21 +107,22 @@
     content: "";
     position: absolute;
     inset: 0;
-    padding: 1.4px;
+    padding: var(--glass-border-width);
     border-radius: inherit;
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.5) 0%,
-      rgba(255, 255, 255, 0.2) 20%,
-      transparent 40%,
-      transparent 60%,
-      rgba(255, 255, 255, 0.2) 80%,
-      rgba(255, 255, 255, 0.5) 100%
-    );
+    background: rgba(255, 255, 255, 0.32);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events: none;
+  }
+
+  .glass-shell {
+    padding: var(--glass-gap);
+    border-radius: var(--glass-shell-radius);
+  }
+
+  .glass-card {
+    border-radius: calc(var(--glass-shell-radius) - var(--glass-gap));
   }
 }
 
