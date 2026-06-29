@@ -34,13 +34,9 @@ function LogoMark({ size = 32 }: { size?: number }) {
       aria-hidden="true"
     >
       <img
-        src="/logo.png"
+        src="/riversoft-icon.svg"
         alt=""
-        className="h-full w-full rounded-full object-contain"
-        onError={(event) => {
-          event.currentTarget.onerror = null;
-          event.currentTarget.src = "/logo.svg";
-        }}
+        className="h-full w-full rounded-full object-cover"
       />
     </span>
   );
@@ -218,50 +214,53 @@ export function HomePage() {
             <h2 className="font-display text-lg font-medium tracking-[-0.04em] text-white">
               Enter our ecosystem
             </h2>
-            <p className="mt-2 font-body text-xs leading-5 text-white/60">
-              Generate, sculpt, and archive floral environments through a living AI design layer.
+            <p className="mt-3 text-xs leading-5 text-white/60">
+              We shape botanical intelligence into living interfaces.
             </p>
           </article>
 
-          <div className="relative z-10 mt-auto">
-            <div className="liquid-glass glass-shell">
-              <div className="grid grid-cols-2 gap-4">
+          <Sparkles
+            className="absolute right-[28%] top-[26%] z-10 text-white/70"
+            size={42}
+            strokeWidth={1}
+          />
+          <Wand2
+            className="absolute right-[16%] top-[34%] z-10 text-white/60"
+            size={32}
+            strokeWidth={1.2}
+          />
+
+          <div className="relative z-10 mt-auto w-full">
+            <section className="liquid-glass glass-shell rounded-[2.5rem] p-4">
+              <div className="grid grid-cols-2 gap-[var(--glass-gap)]">
                 <FeatureCard
                   icon={Wand2}
-                  title="Processing"
-                  copy="Adaptive prompts translate stems, volume, and texture into precise botanical forms."
+                  title="New Designs"
+                  copy="Generate sculptural arrangements and living systems with AI guidance."
                 />
                 <FeatureCard
                   icon={BookOpen}
-                  title="Growth Archive"
-                  copy="Every generated structure is stored as a reusable creative memory for your studio."
+                  title="AI Library"
+                  copy="Explore an evolving archive of plant forms, palettes, and botanical logic."
                 />
               </div>
 
-              <article className="liquid-glass glass-card mt-4 flex items-center gap-4 p-4">
-                <div className="h-16 w-24 overflow-hidden rounded-2xl bg-white/10">
-                  <img
-                    src={heroFlowers}
-                    alt="Grayscale floral sculpture thumbnail"
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-display text-lg font-medium tracking-[-0.04em] text-white">
-                    Advanced Plant Sculpting
-                  </h3>
-                  <p className="mt-1 max-w-md font-body text-xs leading-5 text-white/60">
-                    Shape impossible floral systems with AI-assisted geometry and liquid spatial cues.
+              <div className="liquid-glass glass-card mt-4 flex items-center gap-4 p-4 text-white/80">
+                <img
+                  src={heroFlowers}
+                  alt="Monochrome botanical sculpture"
+                  className="h-24 w-24 rounded-3xl object-cover grayscale"
+                />
+                <div>
+                  <p className="font-body text-xs uppercase tracking-[0.28em] text-white/50">
+                    Structure Lab
                   </p>
+                  <h3 className="mt-2 font-display text-2xl font-medium tracking-[-0.04em] text-white">
+                    Flowers in generated space
+                  </h3>
                 </div>
-                <button
-                  className="liquid-glass flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-white transition-transform hover:scale-105 active:scale-95"
-                  aria-label="Open Advanced Plant Sculpting"
-                >
-                  +
-                </button>
-              </article>
-            </div>
+              </div>
+            </section>
           </div>
         </aside>
       </section>
