@@ -34,7 +34,7 @@ function LogoMark({ size = 32 }: { size?: number }) {
       aria-hidden="true"
     >
       <img
-        src="/riversoft-icon.svg"
+        src="/1000002880.png"
         alt=""
         className="h-full w-full rounded-full object-cover"
       />
