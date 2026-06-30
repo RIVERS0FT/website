@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 export interface UserPlatform {
   platform: string;
+  platformUserId?: string;
   accountName: string;
   profileUrl?: string;
   updatedAt?: string;
@@ -30,7 +31,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -38,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = async () => {
     const res = await fetch(`${API_BASE_URL}/me`, {
-      credentials: "include",
+      credentials: 'include',
     });
 
     if (res.ok) {
@@ -55,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await refreshUser();
       } catch (err) {
-        console.error("Failed to fetch user:", err);
+        console.error('Failed to fetch user:', err);
         setUser(null);
       } finally {
         setLoading(false);
@@ -67,15 +68,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const res = await fetch(`${API_BASE_URL}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email, password }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: "Login failed" }));
-      throw new Error(err.message || "Failed to login");
+      const err = await res.json().catch(() => ({ message: 'Login failed' }));
+      throw new Error(err.message || 'Failed to login');
     }
 
     const data = await res.json();
@@ -84,15 +85,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (email: string, password: string) => {
     const res = await fetch(`${API_BASE_URL}/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email, password }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: "Registration failed" }));
-      throw new Error(err.message || "Failed to register");
+      const err = await res.json().catch(() => ({ message: 'Registration failed' }));
+      throw new Error(err.message || 'Failed to register');
     }
 
     const data = await res.json();
@@ -102,11 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     try {
       await fetch(`${API_BASE_URL}/logout`, {
-        method: "POST",
-        credentials: "include",
+        method: 'POST',
+        credentials: 'include',
       });
     } catch (err) {
-      console.error("Failed to log out:", err);
+      console.error('Failed to log out:', err);
     } finally {
       setUser(null);
     }
@@ -122,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error('useAuth must be used within AuthProvider');
   }
   return context;
 }
