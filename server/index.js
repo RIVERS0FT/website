@@ -20,6 +20,20 @@ const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173,http
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const supportedPlatforms = new Set([
+  'steam',
+  'epic',
+  'ea',
+  'xbox',
+  'playstation',
+  'nintendo',
+  'riot',
+  'battlenet',
+  'ubisoft',
+  'discord',
+  'twitch',
+]);
+
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -30,7 +44,7 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 let db;
 
@@ -88,6 +102,51 @@ async function createSession(userId) {
   return sessionId;
 }
 
+async function ensureUserColumns() {
+  const columns = await db.all('PRAGMA table_info(users)');
+  const columnNames = new Set(columns.map((column) => column.name));
+  const missingColumns = [
+    ['avatar', 'TEXT'],
+    ['bio', 'TEXT'],
+    ['location', 'TEXT'],
+    ['website', 'TEXT'],
+  ].filter(([name]) => !columnNames.has(name));
+
+  for (const [name, type] of missingColumns) {
+    await db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
+  }
+}
+
+function sanitizeOptionalString(value, maxLength = 200) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  return text.slice(0, maxLength);
+}
+
+function normalizePlatform(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+async function getUserProfile(userId) {
+  const user = await db.get(
+    'SELECT id, email, name, avatar, bio, location, website, created_at AS createdAt FROM users WHERE id = ?',
+    [userId]
+  );
+
+  if (!user) return null;
+
+  const platforms = await db.all(
+    `SELECT platform, account_name AS accountName, profile_url AS profileUrl, updated_at AS updatedAt
+     FROM platform_accounts
+     WHERE user_id = ?
+     ORDER BY platform ASC`,
+    [userId]
+  );
+
+  return { ...user, platforms };
+}
+
 // Initialize database
 async function initDb() {
   db = await open({
@@ -101,6 +160,10 @@ async function initDb() {
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       name TEXT,
+      avatar TEXT,
+      bio TEXT,
+      location TEXT,
+      website TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -112,9 +175,23 @@ async function initDb() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS platform_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      platform TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      profile_url TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, platform),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_platform_accounts_user_id ON platform_accounts(user_id);
   `);
+
+  await ensureUserColumns();
   console.log('Database initialized');
 }
 
@@ -131,7 +208,7 @@ const authenticateSession = async (req, res, next) => {
     await deleteExpiredSessions();
 
     const session = await db.get(
-      `SELECT sessions.id, users.id AS user_id, users.email, users.name
+      `SELECT sessions.id, users.id AS user_id, users.email, users.name, users.avatar
        FROM sessions
        JOIN users ON users.id = sessions.user_id
        WHERE sessions.id = ? AND sessions.expires_at > ?`,
@@ -143,10 +220,12 @@ const authenticateSession = async (req, res, next) => {
       return res.sendStatus(401);
     }
 
+    req.sessionId = session.id;
     req.user = {
       id: session.user_id,
       email: session.email,
       name: session.name,
+      avatar: session.avatar,
     };
     next();
   } catch (error) {
@@ -163,6 +242,10 @@ app.post('/api/register', async (req, res) => {
     return res.status(400).json({ message: 'Email and password are required' });
   }
 
+  if (String(password).length < 8) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters' });
+  }
+
   try {
     const existingUser = await db.get('SELECT id FROM users WHERE email = ?', [email]);
     if (existingUser) {
@@ -177,8 +260,8 @@ app.post('/api/register', async (req, res) => {
       [email, hashedPassword]
     );
 
-    const user = { id: result.lastID, email };
-    const sessionId = await createSession(user.id);
+    const sessionId = await createSession(result.lastID);
+    const user = await getUserProfile(result.lastID);
 
     res.setHeader('Set-Cookie', buildSessionCookie(sessionId));
     res.status(201).json({ user });
@@ -208,8 +291,8 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const userPayload = { id: user.id, email: user.email, name: user.name };
     const sessionId = await createSession(user.id);
+    const userPayload = await getUserProfile(user.id);
 
     res.setHeader('Set-Cookie', buildSessionCookie(sessionId));
     res.json({ user: userPayload });
@@ -239,7 +322,116 @@ app.post('/api/logout', async (req, res) => {
 
 // API: Get Current User
 app.get('/api/me', authenticateSession, async (req, res) => {
-  res.json({ user: req.user });
+  const user = await getUserProfile(req.user.id);
+  res.json({ user });
+});
+
+app.get('/api/profile', authenticateSession, async (req, res) => {
+  const user = await getUserProfile(req.user.id);
+  res.json({ user });
+});
+
+app.patch('/api/profile', authenticateSession, async (req, res) => {
+  const name = sanitizeOptionalString(req.body.name, 64);
+  const avatar = sanitizeOptionalString(req.body.avatar, 1000);
+  const bio = sanitizeOptionalString(req.body.bio, 500);
+  const location = sanitizeOptionalString(req.body.location, 80);
+  const website = sanitizeOptionalString(req.body.website, 300);
+
+  try {
+    await db.run(
+      `UPDATE users
+       SET name = ?, avatar = ?, bio = ?, location = ?, website = ?
+       WHERE id = ?`,
+      [name, avatar, bio, location, website, req.user.id]
+    );
+
+    const user = await getUserProfile(req.user.id);
+    res.json({ user });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error updating profile' });
+  }
+});
+
+app.put('/api/profile/password', authenticateSession, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Current password and new password are required' });
+  }
+
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ message: 'New password must be at least 8 characters' });
+  }
+
+  try {
+    const user = await db.get('SELECT id, password FROM users WHERE id = ?', [req.user.id]);
+    const isValid = user && await bcrypt.compare(currentPassword, user.password);
+
+    if (!isValid) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    await db.run('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, req.user.id]);
+    await db.run('DELETE FROM sessions WHERE user_id = ? AND id != ?', [req.user.id, req.sessionId]);
+
+    res.json({ message: 'Password updated' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error updating password' });
+  }
+});
+
+app.put('/api/profile/platforms/:platform', authenticateSession, async (req, res) => {
+  const platform = normalizePlatform(req.params.platform);
+  const accountName = sanitizeOptionalString(req.body.accountName, 80);
+  const profileUrl = sanitizeOptionalString(req.body.profileUrl, 500);
+
+  if (!supportedPlatforms.has(platform)) {
+    return res.status(400).json({ message: 'Unsupported platform' });
+  }
+
+  if (!accountName) {
+    return res.status(400).json({ message: 'Platform account name is required' });
+  }
+
+  try {
+    await db.run(
+      `INSERT INTO platform_accounts (user_id, platform, account_name, profile_url, updated_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(user_id, platform)
+       DO UPDATE SET account_name = excluded.account_name,
+                     profile_url = excluded.profile_url,
+                     updated_at = CURRENT_TIMESTAMP`,
+      [req.user.id, platform, accountName, profileUrl]
+    );
+
+    const user = await getUserProfile(req.user.id);
+    res.json({ user });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error linking platform account' });
+  }
+});
+
+app.delete('/api/profile/platforms/:platform', authenticateSession, async (req, res) => {
+  const platform = normalizePlatform(req.params.platform);
+
+  if (!supportedPlatforms.has(platform)) {
+    return res.status(400).json({ message: 'Unsupported platform' });
+  }
+
+  try {
+    await db.run('DELETE FROM platform_accounts WHERE user_id = ? AND platform = ?', [req.user.id, platform]);
+    const user = await getUserProfile(req.user.id);
+    res.json({ user });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error unlinking platform account' });
+  }
 });
 
 initDb().then(() => {
