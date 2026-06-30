@@ -424,8 +424,10 @@ export function ProfilePage() {
   const displayName = user.name || user.email.split("@")[0];
   const linkedPlatforms = new Map(
     (user.platforms || [])
-      .filter((platform) => platform.platformUserId)
-      .map((platform) => [platform.platform, platform])
+      .filter((platform) =>
+        Boolean(platform.platform && (platform.platformUserId || platform.accountName || platform.profileUrl))
+      )
+      .map((platform) => [String(platform.platform).toLowerCase(), platform])
   );
 
   return (
@@ -590,7 +592,10 @@ export function ProfilePage() {
 
               <div className="grid gap-4 xl:grid-cols-2">
                 {platformOptions.map((platform) => {
-                  const isLinked = Boolean(linkedPlatforms.get(platform.id)?.platformUserId);
+                  const linkedPlatform = linkedPlatforms.get(platform.id);
+                  const isLinked = Boolean(
+                    linkedPlatform?.platformUserId || linkedPlatform?.accountName || linkedPlatform?.profileUrl
+                  );
                   const isUpdating = updatingPlatform === platform.id;
 
                   return (
