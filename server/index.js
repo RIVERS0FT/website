@@ -452,12 +452,16 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_platform_accounts_user_id ON platform_accounts(user_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_accounts_platform_user_id ON platform_accounts(platform, platform_user_id) WHERE platform_user_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_platform_auth_states_expires_at ON platform_auth_states(expires_at);
   `);
 
   await ensureUserColumns();
   await ensurePlatformAccountColumns();
+  await db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_accounts_platform_user_id
+    ON platform_accounts(platform, platform_user_id)
+    WHERE platform_user_id IS NOT NULL;
+  `);
   console.log('Database initialized');
 }
 
