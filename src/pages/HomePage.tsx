@@ -275,12 +275,20 @@ export function HomePage() {
 
             {user ? (
               <div className="liquid-glass flex h-11 items-center gap-1 rounded-full px-2">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-                    <UserIcon size={15} />
+                <Link
+                  to="/profile"
+                  className="flex items-center gap-2 rounded-full transition-transform hover:scale-105"
+                  aria-label="Open profile"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-white/20">
+                    {user.avatar ? (
+                      <img src={user.avatar} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <UserIcon size={15} />
+                    )}
                   </span>
                   <span className="text-sm font-medium text-white">{user.name || user.email.split('@')[0]}</span>
-                </div>
+                </Link>
                 <button
                   onClick={logout}
                   className="flex h-8 w-8 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
