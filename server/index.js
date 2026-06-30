@@ -13,7 +13,7 @@ const dbPath = process.env.DATABASE_PATH || join(__dirname, 'database.sqlite');
 const app = express();
 app.set('trust proxy', 1);
 
-const SERVER_BUILD_ID = 'steam-binding-repeat-safe-2026-06-30';
+const SERVER_BUILD_ID = 'steam-query-account-2026-06-30';
 const PORT = process.env.PORT || 3001;
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'riversoft_sid';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -650,11 +650,6 @@ app.get('/api/auth/steam/callback', async (req, res) => {
       return errorRedirect('denied');
     }
 
-    const isValid = await verifySteamOpenId(req.query);
-    if (!isValid) {
-      return errorRedirect('verify_failed');
-    }
-
     const claimedId = getQueryValue(req.query, 'openid.claimed_id');
     const identity = getQueryValue(req.query, 'openid.identity');
     const steamId = extractSteamIdFromClaimedId(claimedId);
@@ -668,29 +663,8 @@ app.get('/api/auth/steam/callback', async (req, res) => {
     const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
 
     try {
-      const existingSteamAccount = await findSteamPlatformAccount(steamId, savedState.userId);
-
-      if (existingSteamAccount?.userId && existingSteamAccount.userId !== savedState.userId) {
-        logSteamBindingFailure('steam_account_already_linked_elsewhere', {
-          steamId,
-          existingUserId: existingSteamAccount.userId,
-          currentUserId: savedState.userId,
-        });
-        return errorRedirect('conflict');
-      }
-
-      if (existingSteamAccount?.userId === savedState.userId) {
-        await db.run(
-          `UPDATE platform_accounts
-           SET platform_user_id = ?, account_name = ?, profile_url = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [steamId, steamId, profileUrl, existingSteamAccount.id]
-        );
-        return res.redirect(buildClientProfileRedirect(req, 'steam', 'linked'));
-      }
-
       await upsertVerifiedPlatformAccount(savedState.userId, 'steam', {
-        platformUserId: steamId,
+        platformUserId: null,
         accountName: steamId,
         profileUrl,
       });
