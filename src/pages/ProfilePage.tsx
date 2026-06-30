@@ -23,6 +23,12 @@ const backgroundVideo =
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 
+type ToastState = {
+  tone: "success" | "error";
+  title: string;
+  description: string;
+};
+
 const platformOptions = [
   {
     id: "steam",
@@ -128,10 +134,24 @@ const profileCopy = {
     saved: "Saved successfully.",
     unlinked: "Platform unbound.",
     platformLinked: "account linked successfully.",
-    platformLinkFailed: "binding failed or expired. Please try again.",
+    platformLinkFailed: "binding failed. Please try again.",
     platformAlreadyLinked: "is already linked to another RIVERSOFT account.",
     platformUnconfigured: "binding is not configured on the server yet.",
     platformUnsupported: "binding is not supported yet.",
+    bindingSuccessTitle: "Binding complete",
+    bindingFailureTitle: "Binding failed",
+    bindingReasons: {
+      conflict: "This account is already linked to another RIVERSOFT account.",
+      missing_state: "The binding request is missing its security state. Please start again from this page.",
+      expired_state: "The binding session expired. Please click Bind again and finish within 10 minutes.",
+      denied: "Steam did not complete authorization. Please approve the Steam sign-in request.",
+      verify_failed: "Steam returned the sign-in response, but server-side verification failed.",
+      invalid_claim: "Steam returned an invalid account claim. Please try again.",
+      unconfigured: "This platform is not configured on the server yet.",
+      unsupported: "This platform does not support RIVERSOFT binding yet.",
+      error: "The server hit an unexpected error while saving the binding.",
+      fallback: "Binding failed or expired. Please try again.",
+    },
     passwordSaved: "Password updated. Other sessions have been signed out.",
     passwordMismatch: "New passwords do not match.",
     fallbackError: "Something went wrong.",
@@ -163,10 +183,24 @@ const profileCopy = {
     saved: "保存成功。",
     unlinked: "平台已解绑。",
     platformLinked: "账号绑定成功。",
-    platformLinkFailed: "绑定失败或已过期，请重试。",
+    platformLinkFailed: "绑定失败，请重试。",
     platformAlreadyLinked: "已绑定到另一个 RIVERSOFT 账号。",
     platformUnconfigured: "服务端尚未配置该平台绑定参数。",
     platformUnsupported: "暂未支持本站绑定。",
+    bindingSuccessTitle: "绑定完成",
+    bindingFailureTitle: "绑定失败",
+    bindingReasons: {
+      conflict: "该账号已绑定到另一个 RIVERSOFT 账号。",
+      missing_state: "绑定请求缺少安全状态，请从当前页面重新点击绑定。",
+      expired_state: "绑定会话已过期，请重新点击绑定，并在 10 分钟内完成。",
+      denied: "Steam 未完成授权，请在 Steam 登录页确认授权。",
+      verify_failed: "Steam 已返回登录结果，但服务器校验未通过。",
+      invalid_claim: "Steam 返回的账号声明无效，请重试。",
+      unconfigured: "服务端尚未配置该平台绑定参数。",
+      unsupported: "该平台暂未支持 RIVERSOFT 绑定。",
+      error: "服务器保存绑定时发生异常。",
+      fallback: "绑定失败或已过期，请重试。",
+    },
     passwordSaved: "密码已更新，其他会话已退出。",
     passwordMismatch: "两次输入的新密码不一致。",
     fallbackError: "操作失败，请稍后重试。",
@@ -218,6 +252,7 @@ export function ProfilePage() {
   const [updatingPlatform, setUpdatingPlatform] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [toast, setToast] = useState<ToastState | null>(null);
 
   useEffect(() => {
     document.title = `${t.title} | RIVERSOFT`;
@@ -228,6 +263,12 @@ export function ProfilePage() {
       navigate("/login");
     }
   }, [loading, user, navigate]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -251,31 +292,26 @@ export function ProfilePage() {
 
     if (status === "linked") {
       setError("");
-      setMessage(`${platformName} ${t.platformLinked}`);
+      setMessage("");
+      setToast({
+        tone: "success",
+        title: `${platformName} ${t.bindingSuccessTitle}`,
+        description: `${platformName} ${t.platformLinked}`,
+      });
       refreshUser().catch((err) => {
         console.error("Failed to refresh user after platform binding:", err);
       });
       return;
     }
 
+    const reason = t.bindingReasons[status as keyof typeof t.bindingReasons] || t.bindingReasons.fallback;
     setMessage("");
-
-    if (status === "conflict") {
-      setError(`${platformName} ${t.platformAlreadyLinked}`);
-      return;
-    }
-
-    if (status === "unconfigured") {
-      setError(`${platformName} ${t.platformUnconfigured}`);
-      return;
-    }
-
-    if (status === "unsupported") {
-      setError(`${platformName} ${t.platformUnsupported}`);
-      return;
-    }
-
-    setError(`${platformName} ${t.platformLinkFailed}`);
+    setError("");
+    setToast({
+      tone: "error",
+      title: `${platformName} ${t.bindingFailureTitle}`,
+      description: reason,
+    });
   }, [refreshUser, t]);
 
   useEffect(() => {
@@ -631,6 +667,33 @@ export function ProfilePage() {
           </div>
         </div>
       </section>
+
+      {toast ? (
+        <div className="fixed bottom-6 right-6 z-50 w-[min(calc(100vw-2rem),24rem)] animate-[fadeIn_0.2s_ease-out]">
+          <div
+            className={`rounded-3xl border px-5 py-4 shadow-2xl backdrop-blur-2xl ${
+              toast.tone === "error"
+                ? "border-red-400/30 bg-red-500/20 text-red-50"
+                : "border-emerald-300/25 bg-emerald-500/15 text-white"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-display text-sm font-semibold tracking-[-0.02em]">{toast.title}</p>
+                <p className="mt-1 text-sm leading-5 text-white/75">{toast.description}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setToast(null)}
+                className="shrink-0 rounded-full px-2 text-lg leading-none text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Close notification"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
