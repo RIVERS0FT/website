@@ -120,10 +120,6 @@ const profileCopy = {
     memberSince: "Member since",
     saveProfile: "Save profile",
     bind: "Bind",
-    openOfficial: "Open official page",
-    connected: "Bound",
-    linkedAs: "Bound as",
-    openProfile: "Open profile",
     unlink: "Unbind",
     currentPassword: "Current password",
     newPassword: "New password",
@@ -141,10 +137,7 @@ const profileCopy = {
     fallbackError: "Something went wrong.",
     emailVerified: "Email login enabled",
     sessionProtected: "HttpOnly session cookie",
-    privacyNote:
-      "Steam can show a bound status after completion. Other platform cards open their official account pages.",
-    bindingHint: "RIVERSOFT account binding",
-    officialHint: "Official account page",
+    privacyNote: "Steam can be linked to RIVERSOFT. Other platform buttons open the official account page.",
   },
   zh: {
     title: "玩家资料",
@@ -162,10 +155,6 @@ const profileCopy = {
     memberSince: "注册时间",
     saveProfile: "保存资料",
     bind: "绑定",
-    openOfficial: "打开官方页面",
-    connected: "已绑定",
-    linkedAs: "已绑定为",
-    openProfile: "打开资料页",
     unlink: "解绑",
     currentPassword: "当前密码",
     newPassword: "新密码",
@@ -183,10 +172,7 @@ const profileCopy = {
     fallbackError: "操作失败，请稍后重试。",
     emailVerified: "邮箱登录已启用",
     sessionProtected: "HttpOnly 会话 Cookie",
-    privacyNote:
-      "Steam 完成绑定后会显示已绑定。其他平台卡片会打开对应官方账号页面。",
-    bindingHint: "RIVERSOFT 账号绑定",
-    officialHint: "官方账号页面",
+    privacyNote: "Steam 可绑定到 RIVERSOFT，其他平台按钮会打开官方账号页面。",
   },
 } as const;
 
@@ -203,7 +189,7 @@ function getPlatformName(platformId: string) {
 
 function PlatformIcon({ src, name }: { src: string; name: string }) {
   return (
-    <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white/10">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10">
       <img src={src} alt={`${name} logo`} className="h-5 w-5 object-contain" loading="lazy" />
     </span>
   );
@@ -564,70 +550,38 @@ export function ProfilePage() {
 
               <div className="grid gap-4 xl:grid-cols-2">
                 {platformOptions.map((platform) => {
-                  const linkedPlatform = linkedPlatforms.get(platform.id);
-                  const isLinked = Boolean(linkedPlatform?.platformUserId);
+                  const isLinked = Boolean(linkedPlatforms.get(platform.id)?.platformUserId);
                   const isUpdating = updatingPlatform === platform.id;
 
                   return (
-                    <article key={platform.id} className="liquid-glass rounded-3xl p-4">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <article key={platform.id} className="liquid-glass rounded-3xl px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-3">
                           <PlatformIcon src={platform.iconUrl} name={platform.name} />
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="font-display text-base font-medium text-white">{platform.name}</h3>
-                              {isLinked ? (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2 py-0.5 text-[0.65rem] text-white/70">
-                                  <BadgeCheck size={12} />
-                                  {t.connected}
-                                </span>
-                              ) : null}
-                            </div>
-                            <p className="mt-1 truncate text-xs text-white/45">
-                              {isLinked && linkedPlatform
-                                ? `${t.linkedAs} ${linkedPlatform.accountName}`
-                                : platform.canShowBound
-                                  ? t.bindingHint
-                                  : t.officialHint}
-                            </p>
-                          </div>
+                          <h3 className="truncate font-display text-base font-medium text-white">{platform.name}</h3>
                         </div>
 
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          {isLinked && linkedPlatform?.profileUrl ? (
-                            <a
-                              href={linkedPlatform.profileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex h-10 items-center gap-2 rounded-full border border-white/15 px-4 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                            >
-                              <ExternalLink size={14} />
-                              {t.openProfile}
-                            </a>
-                          ) : null}
-
-                          {isLinked ? (
-                            <button
-                              type="button"
-                              disabled={isUpdating}
-                              onClick={() => handleUnlinkPlatform(platform.id)}
-                              className="inline-flex h-10 items-center gap-2 rounded-full border border-white/15 px-4 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-60"
-                            >
-                              {isUpdating ? <Loader2 size={14} className="animate-spin" /> : null}
-                              {t.unlink}
-                            </button>
-                          ) : (
-                            <a
-                              href={platform.bindUrl}
-                              target={platform.canShowBound ? undefined : "_blank"}
-                              rel={platform.canShowBound ? undefined : "noreferrer"}
-                              className="inline-flex h-10 items-center gap-2 rounded-full border border-white/15 px-4 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                            >
-                              <ExternalLink size={14} />
-                              {platform.canShowBound ? `${t.bind} ${platform.name}` : t.openOfficial}
-                            </a>
-                          )}
-                        </div>
+                        {isLinked ? (
+                          <button
+                            type="button"
+                            disabled={isUpdating}
+                            onClick={() => handleUnlinkPlatform(platform.id)}
+                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/15 px-4 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-60"
+                          >
+                            {isUpdating ? <Loader2 size={14} className="animate-spin" /> : null}
+                            {t.unlink}
+                          </button>
+                        ) : (
+                          <a
+                            href={platform.bindUrl}
+                            target={platform.canShowBound ? undefined : "_blank"}
+                            rel={platform.canShowBound ? undefined : "noreferrer"}
+                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/15 px-4 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                          >
+                            <ExternalLink size={14} />
+                            {t.bind}
+                          </a>
+                        )}
                       </div>
                     </article>
                   );
