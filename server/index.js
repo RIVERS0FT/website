@@ -40,63 +40,6 @@ const supportedPlatforms = new Set([
   'twitch',
 ]);
 
-const oauthProviders = {
-  discord: {
-    platform: 'discord',
-    displayName: 'Discord',
-    clientId: process.env.DISCORD_CLIENT_ID,
-    clientSecret: process.env.DISCORD_CLIENT_SECRET,
-    authorizeUrl: 'https://discord.com/oauth2/authorize',
-    tokenUrl: 'https://discord.com/api/oauth2/token',
-    scope: 'identify',
-    async fetchAccount(accessToken) {
-      const profile = await fetchJson('https://discord.com/api/users/@me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }, 'Failed to fetch Discord profile');
-
-      if (!profile.id) {
-        throw new Error('Discord profile response is missing id');
-      }
-
-      return {
-        platformUserId: String(profile.id),
-        accountName: String(profile.global_name || profile.username || profile.id).slice(0, 80),
-        profileUrl: `https://discord.com/users/${profile.id}`,
-      };
-    },
-  },
-  twitch: {
-    platform: 'twitch',
-    displayName: 'Twitch',
-    clientId: process.env.TWITCH_CLIENT_ID,
-    clientSecret: process.env.TWITCH_CLIENT_SECRET,
-    authorizeUrl: 'https://id.twitch.tv/oauth2/authorize',
-    tokenUrl: 'https://id.twitch.tv/oauth2/token',
-    scope: '',
-    async fetchAccount(accessToken, provider) {
-      const response = await fetchJson('https://api.twitch.tv/helix/users', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Client-Id': provider.clientId,
-        },
-      }, 'Failed to fetch Twitch profile');
-      const profile = Array.isArray(response.data) ? response.data[0] : null;
-
-      if (!profile?.id) {
-        throw new Error('Twitch profile response is missing id');
-      }
-
-      return {
-        platformUserId: String(profile.id),
-        accountName: String(profile.display_name || profile.login || profile.id).slice(0, 80),
-        profileUrl: profile.login ? `https://www.twitch.tv/${profile.login}` : null,
-      };
-    },
-  },
-};
-
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -156,7 +99,16 @@ function isLocalOrigin(origin) {
 }
 
 function getRequestOrigin(req) {
-  return normalizeOrigin(`${req.protocol}://${req.get('host')}`);
+  const forwardedHost = req.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const forwardedProto = req.get('x-forwarded-proto')?.split(',')[0]?.trim();
+  const host = forwardedHost || req.get('host');
+  let protocol = forwardedProto || req.protocol || 'http';
+
+  if (/riversoft\.top$/i.test(String(host || '').split(':')[0])) {
+    protocol = 'https';
+  }
+
+  return normalizeOrigin(`${protocol}://${host}`);
 }
 
 function getServerOrigin(req) {
@@ -173,7 +125,8 @@ function getClientOrigin(req) {
     return requestOrigin;
   }
 
-  return normalizeOrigin(allowedOrigins[0] || DEFAULT_CLIENT_ORIGIN);
+  const publicOrigin = allowedOrigins.find((origin) => !isLocalOrigin(origin) && origin.startsWith('https://'));
+  return normalizeOrigin(publicOrigin || allowedOrigins[0] || DEFAULT_CLIENT_ORIGIN);
 }
 
 function buildClientProfileRedirect(req, platform, status) {
@@ -196,30 +149,19 @@ function extractSteamIdFromClaimedId(claimedId) {
   return match ? match[1] : null;
 }
 
-function isOAuthProviderConfigured(provider) {
-  return Boolean(provider?.clientId && provider?.clientSecret);
-}
-
 function isSqliteUniqueConstraintError(error) {
   return error?.code === 'SQLITE_CONSTRAINT' || String(error?.message || '').includes('SQLITE_CONSTRAINT');
 }
 
-async function fetchJson(url, options, errorMessage) {
-  const response = await fetch(url, options);
-  const text = await response.text();
-  let data = null;
+function sanitizeOptionalString(value, maxLength = 200) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  return text.slice(0, maxLength);
+}
 
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = null;
-  }
-
-  if (!response.ok) {
-    throw new Error(`${errorMessage}: HTTP ${response.status}`);
-  }
-
-  return data;
+function normalizePlatform(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
 async function verifySteamOpenId(query) {
@@ -247,36 +189,26 @@ async function verifySteamOpenId(query) {
   return response.ok && /(^|\n)is_valid\s*:\s*true(\r?\n|$)/.test(text);
 }
 
-async function exchangeOAuthCode(provider, code, redirectUri) {
-  const params = new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: redirectUri,
-    client_id: provider.clientId,
-    client_secret: provider.clientSecret,
-  });
-
-  const token = await fetchJson(provider.tokenUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params,
-  }, `Failed to exchange ${provider.displayName} OAuth code`);
-
-  if (!token?.access_token) {
-    throw new Error(`${provider.displayName} token response is missing access token`);
-  }
-
-  return token;
-}
-
 async function deleteExpiredSessions() {
   await db.run('DELETE FROM sessions WHERE expires_at <= ?', [Date.now()]);
 }
 
 async function deleteExpiredPlatformAuthStates() {
   await db.run('DELETE FROM platform_auth_states WHERE expires_at <= ?', [Date.now()]);
+}
+
+async function createSession(userId) {
+  await deleteExpiredSessions();
+
+  const sessionId = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+
+  await db.run(
+    'INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)',
+    [sessionId, userId, expiresAt]
+  );
+
+  return sessionId;
 }
 
 async function createPlatformAuthState(platform, req, redirectUri) {
@@ -293,32 +225,18 @@ async function createPlatformAuthState(platform, req, redirectUri) {
   return state;
 }
 
-async function consumePlatformAuthState(platform, state, req) {
+async function consumePlatformAuthState(platform, state) {
   await deleteExpiredPlatformAuthStates();
 
   const savedState = await db.get(
-    `SELECT state, redirect_uri AS redirectUri
+    `SELECT state, user_id AS userId, session_id AS sessionId, redirect_uri AS redirectUri
      FROM platform_auth_states
-     WHERE state = ? AND platform = ? AND user_id = ? AND session_id = ? AND expires_at > ?`,
-    [state, platform, req.user.id, req.sessionId, Date.now()]
+     WHERE state = ? AND platform = ? AND expires_at > ?`,
+    [state, platform, Date.now()]
   );
 
   await db.run('DELETE FROM platform_auth_states WHERE state = ?', [state]);
   return savedState;
-}
-
-async function createSession(userId) {
-  await deleteExpiredSessions();
-
-  const sessionId = crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + SESSION_TTL_MS;
-
-  await db.run(
-    'INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)',
-    [sessionId, userId, expiresAt]
-  );
-
-  return sessionId;
 }
 
 async function ensureUserColumns() {
@@ -354,17 +272,6 @@ async function ensurePlatformAccountColumns() {
   );
 }
 
-function sanitizeOptionalString(value, maxLength = 200) {
-  if (value === undefined || value === null) return null;
-  const text = String(value).trim();
-  if (!text) return null;
-  return text.slice(0, maxLength);
-}
-
-function normalizePlatform(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
 async function getUserProfile(userId) {
   const user = await db.get(
     'SELECT id, email, name, avatar, bio, location, website, created_at AS createdAt FROM users WHERE id = ?',
@@ -397,11 +304,10 @@ async function upsertVerifiedPlatformAccount(userId, platform, account) {
   );
 }
 
-// Initialize database
 async function initDb() {
   db = await open({
     filename: dbPath,
-    driver: sqlite3.Database
+    driver: sqlite3.Database,
   });
 
   await db.exec(`
@@ -465,7 +371,6 @@ async function initDb() {
   console.log('Database initialized');
 }
 
-// Middleware to verify session cookie
 const authenticateSession = async (req, res, next) => {
   const cookies = parseCookies(req);
   const sessionId = cookies[SESSION_COOKIE_NAME];
@@ -504,10 +409,9 @@ const authenticateSession = async (req, res, next) => {
   }
 };
 
-// API: Register
 app.post('/api/register', async (req, res) => {
   const { email, password } = req.body;
-  
+
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required' });
   }
@@ -524,12 +428,7 @@ app.post('/api/register', async (req, res) => {
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-
-    const result = await db.run(
-      'INSERT INTO users (email, password) VALUES (?, ?)',
-      [email, hashedPassword]
-    );
-
+    const result = await db.run('INSERT INTO users (email, password) VALUES (?, ?)', [email, hashedPassword]);
     const sessionId = await createSession(result.lastID);
     const user = await getUserProfile(result.lastID);
 
@@ -541,7 +440,6 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// API: Login
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -551,7 +449,7 @@ app.post('/api/login', async (req, res) => {
 
   try {
     const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
-    
+
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -572,7 +470,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// API: Logout
 app.post('/api/logout', async (req, res) => {
   const cookies = parseCookies(req);
   const sessionId = cookies[SESSION_COOKIE_NAME];
@@ -590,7 +487,6 @@ app.post('/api/logout', async (req, res) => {
   }
 });
 
-// API: Get Current User
 app.get('/api/me', authenticateSession, async (req, res) => {
   const user = await getUserProfile(req.user.id);
   res.json({ user });
@@ -679,7 +575,7 @@ app.get('/api/auth/steam', authenticateSession, async (req, res) => {
   }
 });
 
-app.get('/api/auth/steam/callback', authenticateSession, async (req, res) => {
+app.get('/api/auth/steam/callback', async (req, res) => {
   const state = sanitizeOptionalString(getQueryValue(req.query, 'state'), 128);
   const errorRedirect = (status = 'error') => res.redirect(buildClientProfileRedirect(req, 'steam', status));
 
@@ -688,9 +584,9 @@ app.get('/api/auth/steam/callback', authenticateSession, async (req, res) => {
   }
 
   try {
-    const savedState = await consumePlatformAuthState('steam', state, req);
+    const savedState = await consumePlatformAuthState('steam', state);
 
-    if (!savedState) {
+    if (!savedState?.userId) {
       return errorRedirect();
     }
 
@@ -713,7 +609,7 @@ app.get('/api/auth/steam/callback', authenticateSession, async (req, res) => {
 
     const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
 
-    await upsertVerifiedPlatformAccount(req.user.id, 'steam', {
+    await upsertVerifiedPlatformAccount(savedState.userId, 'steam', {
       platformUserId: steamId,
       accountName: steamId,
       profileUrl,
@@ -728,73 +624,7 @@ app.get('/api/auth/steam/callback', authenticateSession, async (req, res) => {
 
 app.get('/api/auth/:platform', authenticateSession, async (req, res) => {
   const platform = normalizePlatform(req.params.platform);
-  const provider = oauthProviders[platform];
-
-  if (!provider) {
-    return res.redirect(buildClientProfileRedirect(req, platform || 'unknown', 'unsupported'));
-  }
-
-  if (!isOAuthProviderConfigured(provider)) {
-    return res.redirect(buildClientProfileRedirect(req, platform, 'unconfigured'));
-  }
-
-  try {
-    const redirectUri = `${getServerOrigin(req)}/api/auth/${platform}/callback`;
-    const state = await createPlatformAuthState(platform, req, redirectUri);
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: provider.clientId,
-      redirect_uri: redirectUri,
-      state,
-    });
-
-    if (provider.scope) {
-      params.set('scope', provider.scope);
-    }
-
-    res.redirect(`${provider.authorizeUrl}?${params.toString()}`);
-  } catch (error) {
-    console.error(error);
-    res.redirect(buildClientProfileRedirect(req, platform, 'error'));
-  }
-});
-
-app.get('/api/auth/:platform/callback', authenticateSession, async (req, res) => {
-  const platform = normalizePlatform(req.params.platform);
-  const provider = oauthProviders[platform];
-  const state = sanitizeOptionalString(getQueryValue(req.query, 'state'), 128);
-  const code = sanitizeOptionalString(getQueryValue(req.query, 'code'), 2048);
-  const errorRedirect = (status = 'error') => res.redirect(buildClientProfileRedirect(req, platform || 'unknown', status));
-
-  if (!provider) {
-    return errorRedirect('unsupported');
-  }
-
-  if (!isOAuthProviderConfigured(provider)) {
-    return errorRedirect('unconfigured');
-  }
-
-  if (!state || !code) {
-    return errorRedirect();
-  }
-
-  try {
-    const savedState = await consumePlatformAuthState(platform, state, req);
-
-    if (!savedState?.redirectUri) {
-      return errorRedirect();
-    }
-
-    const token = await exchangeOAuthCode(provider, code, savedState.redirectUri);
-    const account = await provider.fetchAccount(token.access_token, provider);
-
-    await upsertVerifiedPlatformAccount(req.user.id, platform, account);
-
-    res.redirect(buildClientProfileRedirect(req, platform, 'linked'));
-  } catch (error) {
-    console.error(error);
-    errorRedirect(isSqliteUniqueConstraintError(error) ? 'conflict' : 'error');
-  }
+  res.redirect(buildClientProfileRedirect(req, platform || 'unknown', 'unsupported'));
 });
 
 app.delete('/api/profile/platforms/:platform', authenticateSession, async (req, res) => {
